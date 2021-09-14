@@ -1,1 +1,1 @@
-worker: python -c "import asyncio; from p3118helper import P3118HelperBot; b = P3118Helper('$BOT_TOKEN', group_id=$GROUP_ID);asyncio.new_event_loop().run_until_complete(b.run())"
+worker: python -c "import asyncio; from p3118helper import P3118HelperBot; b = P3118HelperBot('$BOT_TOKEN', group_id=$GROUP_ID);asyncio.new_event_loop().run_until_complete(b.run())"
