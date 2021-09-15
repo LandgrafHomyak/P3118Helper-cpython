@@ -151,7 +151,7 @@ class QueueBot(BaseBot):
                     await query.answer("All up to dates!")
                 return
 
-        i = 0
+        i = -1
         for i, r in enumerate(q):
             if r is None:
                 break
