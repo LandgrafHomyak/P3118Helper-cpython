@@ -1,7 +1,7 @@
 import re
 from io import StringIO
 
-from aiogram.dispatcher.filters import Text, Filter
+from aiogram.dispatcher.filters import Filter
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from ._base import BaseBot
@@ -106,7 +106,8 @@ class QueueBot(BaseBot):
         self._dp.register_callback_query_handler(self.__pop, GroupFilter(group_id), PrefixCheckFilter("qpop"))
         self._dp.register_callback_query_handler(self.__up, GroupFilter(group_id), PrefixCheckFilter("qup"))
         self._dp.register_callback_query_handler(self.__down, GroupFilter(group_id), PrefixCheckFilter("qdown"))
-        self._dp.register_callback_query_handler(self.__finalize, GroupFilter(group_id), PrefixCheckFilter("qfinalize"))
+        # self._dp.register_callback_query_handler(self.__finalize_cbq, GroupFilter(group_id), PrefixCheckFilter("qfinalize"))
+        self._dp.register_message_handler(self.__finalize_cmd, GroupFilter(group_id), commands=["qfinalize"])
 
     async def __create_queue(self, message: Message):
         m = await message.reply("<b>Сдесь могла быть ваша куеуе</b>", parse_mode="html")
@@ -125,9 +126,12 @@ class QueueBot(BaseBot):
                         InlineKeyboardButton(text="pop", callback_data=f"qpop {m.chat.id} {m.message_id}"),
                         InlineKeyboardButton(text="down", callback_data=f"qdown {m.chat.id} {m.message_id}")
                     ],
-                    [
-                        InlineKeyboardButton(text="finalize", callback_data=f"qfinalize {m.chat.id} {m.message_id}")
-                    ],
+                    # [
+                    #     InlineKeyboardButton(text=" ", callback_data=f" ")
+                    # ],
+                    # [
+                    #     InlineKeyboardButton(text="finalize", callback_data=f"qfinalize {m.chat.id} {m.message_id}")
+                    # ],
                 ]
             )
         )
@@ -232,7 +236,7 @@ class QueueBot(BaseBot):
                 return
         await query.answer("UserNotFoundException")
 
-    async def __finalize(self, query: CallbackQuery):
+    async def __finalize_cbq(self, query: CallbackQuery):
         if (q := Queue(query.message.html_text)) is None:
             await query.answer("NullPointerException")
             return
@@ -244,3 +248,17 @@ class QueueBot(BaseBot):
         q.final = True
         await query.message.edit_text(q.dump(), parse_mode="html", reply_markup=query.message.reply_markup)
         await query.answer("Queue finalized")
+
+    async def __finalize_cmd(self, message: Message):
+        if message.reply_to_message is None or (q := Queue(message.reply_to_message.html_text)) is None:
+            await message.reply("NullPointerException")
+            return
+
+        if q.final:
+            await message.reply("You too late, it's already final")
+            return
+
+        q.final = True
+        await message.reply_to_message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_to_message.reply_markup)
+        await message.reply("Queue finalized")
+
