@@ -32,8 +32,8 @@ class PrefixCheckFilter(Filter):
 
 
 class Queue:
-    __slots__ = ("final", "__data")
-    __global_pattern = re.compile(r"^(?:<\s*b\s*>(final)\s+|).+(?:\n\n([\s\S]+)|)$")
+    __slots__ = ("final", "name", "__data")
+    __global_pattern = re.compile(r"""^<\s*b\s*>(?:(final)\s+|)куеуе(?:\s+=\s+"</\s*b\s*><\s*i\s*>(.+)</\s*i\s*><\s*b\s*>"\s+|):</\s*b\s*>(?:\n\n([\s\S]+)|)$""")
     __row_pattern = re.compile(r"""(?:^|(?<=\n))<\s*code\s*>(\d+)\s+</\s*code\s*><\s*a\s+href=['"]?tg://user\?id=(\d+)['"]?\s*>(.+)</\s*a\s*>(?:$|(?=\n))""")
 
     class Record:
@@ -49,7 +49,7 @@ class Queue:
         if g is None:
             return None
 
-        u = list(map(cls.Record, cls.__row_pattern.findall(g.group(2) or "")))
+        u = list(map(cls.Record, cls.__row_pattern.findall(g.group(3) or "")))
         fu = []
         for r in u:
             while r.pos > len(fu):
@@ -58,6 +58,7 @@ class Queue:
 
         self = super().__new__(cls)
         self.final = g.group(1) == "final"
+        self.name = g.group(2)
         self.__data = fu
         return self
 
@@ -85,7 +86,10 @@ class Queue:
         f.write("<b>")
         if self.final:
             f.write("final ")
-        f.write("куеуе:</b>\n\n")
+        f.write("куеуе")
+        if self.name is not None:
+            f.write(f" = \"</b><i>{self.name}</i><b>\" ")
+        f.write(":</b>\n\n")
         for i, r in enumerate(self):
             if r is None:
                 f.write(f"<code>{i}</code>\n")
@@ -114,10 +118,14 @@ class QueueBot(BaseBot):
         self._dp.register_message_handler(self.__finalize_cmd, GroupFilter(group_id), commands=["qfinalize"])
 
     async def __create_queue(self, message: Message):
-        m = await message.reply("<b>Сдесь могла быть ваша куеуе</b>", parse_mode="html")
+        qname = message.get_args()
+        if not qname or qname.isidentifier():
+            m = await message.reply("<b>Сдесь могла быть ваша куеуе</b>", parse_mode="html")
+        else:
+            await message.reply("<b>Сдесь могла быть ваша куеуе, но вы не умеете в названия переменных</b>", parse_mode="html")
 
         await m.edit_text(
-            "<b>куеуе:</b>",
+            f"<b>куеуе = \"</b><i>{qname}</i><b>\" :</b>",
             parse_mode="html",
             reply_markup=InlineKeyboardMarkup(
                 row_width=2,
@@ -274,9 +282,9 @@ class QueueBot(BaseBot):
 
     async def __afloodmutexlock(self):
         if self.__afloodmutex is None:
-            self.__afloodmutex = asyncio.Event()
+            self.__afloodmutex = asyncio.Event() # todo bad cretion
             self.__afloodmutex.set()
         await self.__afloodmutex.wait()
         self.__afloodmutex.clear()
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.3)  # todo need check for remove
         self.__afloodmutex.set()
