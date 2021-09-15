@@ -1,3 +1,4 @@
+import asyncio
 import re
 from io import StringIO
 
@@ -70,7 +71,7 @@ class Queue:
 
     def __delitem__(self, pos):
         self.__data[pos] = None
-        while self.__data[-1] is None:
+        while self.__data and self.__data[-1] is None:
             self.__data.pop()
 
     def __iter__(self):
@@ -99,8 +100,11 @@ class Queue:
 
 
 class QueueBot(BaseBot):
+    __slots__ = ("__afloodmutex",)
+
     def __init__(self, token, *, group_id, **kwargs):
         super().__init__(token, group_id=group_id, **kwargs)
+        self.__afloodmutex = None
         self._dp.register_message_handler(self.__create_queue, GroupFilter(group_id), commands=["queue"])
         self._dp.register_callback_query_handler(self.__push, GroupFilter(group_id), PrefixCheckFilter("qpush"))
         self._dp.register_callback_query_handler(self.__pop, GroupFilter(group_id), PrefixCheckFilter("qpop"))
@@ -137,6 +141,7 @@ class QueueBot(BaseBot):
         )
 
     async def __push(self, query: CallbackQuery):
+        await self.__afloodmutexlock()
         if (q := Queue(query.message.html_text)) is None:
             await query.answer("NullPointerException")
             return
@@ -168,6 +173,7 @@ class QueueBot(BaseBot):
         await query.answer("Pushed")
 
     async def __pop(self, query: CallbackQuery):
+        await self.__afloodmutexlock()
         if (q := Queue(query.message.html_text)) is None:
             await query.answer("NullPointerException")
             return
@@ -185,6 +191,7 @@ class QueueBot(BaseBot):
         await query.answer("UserNotFoundException")
 
     async def __up(self, query: CallbackQuery):
+        await self.__afloodmutexlock()
         if (q := Queue(query.message.html_text)) is None:
             await query.answer("NullPointerException")
             return
@@ -210,6 +217,7 @@ class QueueBot(BaseBot):
         await query.answer("UserNotFoundException")
 
     async def __down(self, query: CallbackQuery):
+        await self.__afloodmutexlock()
         if (q := Queue(query.message.html_text)) is None:
             await query.answer("NullPointerException")
             return
@@ -237,6 +245,7 @@ class QueueBot(BaseBot):
         await query.answer("UserNotFoundException")
 
     async def __finalize_cbq(self, query: CallbackQuery):
+        await self.__afloodmutexlock()
         if (q := Queue(query.message.html_text)) is None:
             await query.answer("NullPointerException")
             return
@@ -250,6 +259,7 @@ class QueueBot(BaseBot):
         await query.answer("Queue finalized")
 
     async def __finalize_cmd(self, message: Message):
+        await self.__afloodmutexlock()
         if message.reply_to_message is None or (q := Queue(message.reply_to_message.html_text)) is None:
             await message.reply("NullPointerException")
             return
@@ -262,3 +272,11 @@ class QueueBot(BaseBot):
         await message.reply_to_message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_to_message.reply_markup)
         await message.reply("Queue finalized")
 
+    async def __afloodmutexlock(self):
+        if self.__afloodmutex is None:
+            self.__afloodmutex = asyncio.Event()
+            self.__afloodmutex.set()
+        await self.__afloodmutex.wait()
+        self.__afloodmutex.clear()
+        await asyncio.sleep(0.3)
+        self.__afloodmutex.set()
