@@ -103,12 +103,69 @@ class Queue:
         self.__data.append(None)
 
 
+class AFloodCache:
+    __slots__ = ("__cache", "__mutex")
+
+    class BoundAFlood:
+        __slots__ = ("__message", "__cache", "__mutex")
+
+        class BoundAFloodMessageWrapper:
+            __slots__ = ("__message", "__cache")
+
+            def __init__(self, m, c):
+                self.__message = m
+                self.__cache = c
+
+            async def reply(self, *args, **kwargs):
+                return await self.__message.reply(*args, **kwargs)
+
+
+            async def edit_text(self, *args, **kwargs):
+                r = self.__cache[self.__message.chat.id, self.__message.message_id] = await self.__message.edit_text(*args, **kwargs)
+                return r
+
+            @property
+            def reply_markup(self):
+                return self.__message.reply_markup
+
+            @property
+            def html_text(self):
+                return self.__message.html_text
+
+        def __init__(self, m, c, x):
+            self.__message = m
+            self.__cache = c
+            self.__mutex = x
+
+        async def __aenter__(self):
+            await self.__mutex.wait()
+            self.__mutex.clear()
+            await asyncio.sleep(0.3)
+
+            return self.BoundAFloodMessageWrapper(self.__cache.get((self.__message .chat.id, self.__message .message_id), self.__message ), self.__cache)
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            self.__mutex.set()
+            return False
+
+    def __init__(self):
+        self.__cache = dict()
+        self.__mutex = None
+
+    def __call__(self, message: Message):
+        if self.__mutex is None:
+            self.__mutex = asyncio.Event()  # todo bad creation
+            self.__mutex.set()
+
+        return self.BoundAFlood(message, self.__cache, self.__mutex)
+
+
 class QueueBot(BaseBot):
-    __slots__ = ("__afloodmutex",)
+    __slots__ = ("__afloodcache",)
 
     def __init__(self, token, *, group_id, **kwargs):
         super().__init__(token, group_id=group_id, **kwargs)
-        self.__afloodmutex = None
+        self.__afloodcache = AFloodCache()
         self._dp.register_message_handler(self.__create_queue, GroupFilter(group_id), commands=["queue"])
         self._dp.register_callback_query_handler(self.__push, GroupFilter(group_id), PrefixCheckFilter("qpush"))
         self._dp.register_callback_query_handler(self.__pop, GroupFilter(group_id), PrefixCheckFilter("qpop"))
@@ -149,142 +206,138 @@ class QueueBot(BaseBot):
         )
 
     async def __push(self, query: CallbackQuery):
-        await self.__afloodmutexlock()
-        if (q := Queue(query.message.html_text)) is None:
-            await query.answer("NullPointerException")
-            return
-
-        if q.final:
-            await query.answer("AccessToFinalQueueException")
-            return
-
-        for r in q:
-            if r is not None and r.uid == query.from_user.id:
-                if r.name != query.from_user.full_name:
-                    r.name = query.from_user.full_name
-                    await query.message.edit_text(q.dump(), parse_mode="html", reply_markup=query.message.reply_markup)
-                    await query.answer("Synchronized")
-                else:
-                    await query.answer("All up to dates!")
+        async with self.__afloodcache(query.message) as message:
+            if (q := Queue(message.html_text)) is None:
+                await query.answer("NullPointerException")
                 return
 
-        i = -1
-        for i, r in enumerate(q):
-            if r is None:
-                break
-        else:
-            i += 1
-            q.extend()
-        q[i] = Queue.Record((i, query.from_user.id, query.from_user.full_name))
+            if q.final:
+                await query.answer("AccessToFinalQueueException")
+                return
 
-        await query.message.edit_text(q.dump(), parse_mode="html", reply_markup=query.message.reply_markup)
-        await query.answer("Pushed")
+            for r in q:
+                if r is not None and r.uid == query.from_user.id:
+                    if r.name != query.from_user.full_name:
+                        r.name = query.from_user.full_name
+                        await message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_markup)
+                        await query.answer("Synchronized")
+                    else:
+                        await query.answer("All up to dates!")
+                    return
+
+            i = -1
+            for i, r in enumerate(q):
+                if r is None:
+                    break
+            else:
+                i += 1
+                q.extend()
+            q[i] = Queue.Record((i, query.from_user.id, query.from_user.full_name))
+
+            await message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_markup)
+            await query.answer("Pushed")
 
     async def __pop(self, query: CallbackQuery):
-        await self.__afloodmutexlock()
-        if (q := Queue(query.message.html_text)) is None:
-            await query.answer("NullPointerException")
-            return
-
-        if q.final:
-            await query.answer("AccessToFinalQueueException")
-            return
-
-        for r in q:
-            if r is not None and r.uid == query.from_user.id:
-                del q[r.pos]
-                await query.message.edit_text(q.dump(), parse_mode="html", reply_markup=query.message.reply_markup)
-                await query.answer("Popped")
+        async with self.__afloodcache(query.message) as message:
+            if (q := Queue(message.html_text)) is None:
+                await query.answer("NullPointerException")
                 return
-        await query.answer("UserNotFoundException")
+
+            if q.final:
+                await query.answer("AccessToFinalQueueException")
+                return
+
+            for r in q:
+                if r is not None and r.uid == query.from_user.id:
+                    del q[r.pos]
+                    await message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_markup)
+                    await query.answer("Popped")
+                    return
+            await query.answer("UserNotFoundException")
 
     async def __up(self, query: CallbackQuery):
-        await self.__afloodmutexlock()
-        if (q := Queue(query.message.html_text)) is None:
-            await query.answer("NullPointerException")
-            return
+        async with self.__afloodcache(query.message) as message:
+            if (q := Queue(message.html_text)) is None:
+                await query.answer("NullPointerException")
+                return
 
-        if q.final:
-            await query.answer("AccessToFinalQueueException")
-            return
+            if q.final:
+                await query.answer("AccessToFinalQueueException")
+                return
 
-        for r in q:
-            if r is not None and r.uid == query.from_user.id:
-                i = r.pos - 1
-                while i >= 0:
-                    if q[i] is None:
-                        q[i] = r
-                        del q[r.pos]
-                        await query.message.edit_text(q.dump(), parse_mode="html", reply_markup=query.message.reply_markup)
-                        await query.answer("Time goes faster...")
+            for r in q:
+                if r is not None and r.uid == query.from_user.id:
+                    i = r.pos - 1
+                    while i >= 0:
+                        if q[i] is None:
+                            q[i] = r
+                            del q[r.pos]
+                            await message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_markup)
+                            await query.answer("Time goes faster...")
+                            return
+                        i -= 1
+                    else:
+                        await query.answer("Can't accelerate")
                         return
-                    i -= 1
-                else:
-                    await query.answer("Can't accelerate")
-                    return
-        await query.answer("UserNotFoundException")
+            await query.answer("UserNotFoundException")
 
     async def __down(self, query: CallbackQuery):
-        await self.__afloodmutexlock()
-        if (q := Queue(query.message.html_text)) is None:
-            await query.answer("NullPointerException")
-            return
+        async with self.__afloodcache(query.message) as message:
+            if (q := Queue(message.html_text)) is None:
+                await query.answer("NullPointerException")
+                return
 
-        if q.final:
-            await query.answer("AccessToFinalQueueException")
-            return
+            if q.final:
+                await query.answer("AccessToFinalQueueException")
+                return
 
-        for r in q:
-            if r is not None and r.uid == query.from_user.id:
-                i = r.pos + 1
-                while i < len(q):
-                    if q[i] is None:
+            for r in q:
+                if r is not None and r.uid == query.from_user.id:
+                    i = r.pos + 1
+                    while i < len(q):
+                        if q[i] is None:
+                            q[i] = r
+                            del q[r.pos]
+                            break
+                        i += 1
+                    else:
+                        q.extend()
                         q[i] = r
                         del q[r.pos]
-                        break
-                    i += 1
-                else:
-                    q.extend()
-                    q[i] = r
-                    del q[r.pos]
-                await query.message.edit_text(q.dump(), parse_mode="html", reply_markup=query.message.reply_markup)
-                await query.answer("Time goes slower...")
-                return
-        await query.answer("UserNotFoundException")
+                    await message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_markup)
+                    await query.answer("Time goes slower...")
+                    return
+            await query.answer("UserNotFoundException")
 
     async def __finalize_cbq(self, query: CallbackQuery):
-        await self.__afloodmutexlock()
-        if (q := Queue(query.message.html_text)) is None:
-            await query.answer("NullPointerException")
-            return
+        async with self.__afloodcache(query.message) as message:
 
-        if q.final:
-            await query.answer("You too late, it's already final")
-            return
+            if (q := Queue(message.html_text)) is None:
+                await query.answer("NullPointerException")
+                return
 
-        q.final = True
-        await query.message.edit_text(q.dump(), parse_mode="html", reply_markup=query.message.reply_markup)
-        await query.answer("Queue finalized")
+            if q.final:
+                await query.answer("You too late, it's already final")
+                return
+
+            q.final = True
+            await message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_markup)
+            await query.answer("Queue finalized")
 
     async def __finalize_cmd(self, message: Message):
-        await self.__afloodmutexlock()
-        if message.reply_to_message is None or (q := Queue(message.reply_to_message.html_text)) is None:
+        if message.reply_to_message is None:
             await message.reply("NullPointerException")
-            return
 
-        if q.final:
-            await message.reply("You too late, it's already final")
-            return
+        async with self.__afloodcache(message.reply_to_message) as qmessage:
+            if (q := Queue(qmessage.html_text)) is None:
+                await message.reply("NullPointerException")
+                return
 
-        q.final = True
-        await message.reply_to_message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_to_message.reply_markup)
-        await message.reply("Queue finalized")
+            if q.final:
+                await message.reply("You too late, it's already final")
+                return
 
-    async def __afloodmutexlock(self):
-        if self.__afloodmutex is None:
-            self.__afloodmutex = asyncio.Event() # todo bad cretion
-            self.__afloodmutex.set()
-        await self.__afloodmutex.wait()
-        self.__afloodmutex.clear()
-        await asyncio.sleep(0.3)  # todo need check for remove
-        self.__afloodmutex.set()
+            q.final = True
+            await qmessage.edit_text(q.dump(), parse_mode="html", reply_markup=qmessage.reply_markup)
+            await message.reply("Queue finalized")
+
