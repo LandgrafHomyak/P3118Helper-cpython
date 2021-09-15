@@ -1,3 +1,4 @@
+import asyncio
 from typing import NoReturn
 
 from aiogram import Bot, Dispatcher
