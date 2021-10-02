@@ -1,6 +1,7 @@
 import asyncio
 import re
 from io import StringIO
+from random import choice
 
 from aiogram.dispatcher.filters import Filter
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -33,7 +34,7 @@ class PrefixCheckFilter(Filter):
 
 class Queue:
     __slots__ = ("final", "name", "__data")
-    __global_pattern = re.compile(r"""^<\s*b\s*>(?:(final)\s+|)куеуе(?:\s+=\s+"</\s*b\s*><\s*i\s*>(.+)</\s*i\s*><\s*b\s*>"\s+|):</\s*b\s*>(?:\n\n([\s\S]+)|)$""")
+    __global_pattern = re.compile(r"""^<\s*b\s*>(?:(final)\s+|)куеуе(?:\s+=\s+"(?:</\s*b\s*><\s*i\s*>(.*)</\s*i\s*><\s*b\s*>|)"\s+|):</\s*b\s*>(?:\n\n([\s\S]+)|)$""")
     __row_pattern = re.compile(r"""(?:^|(?<=\n))<\s*code\s*>(\d+)\s+</\s*code\s*><\s*a\s+href=['"]?tg://user\?id=(\d+)['"]?\s*>(.+)</\s*a\s*>(?:$|(?=\n))""")
 
     class Record:
@@ -102,6 +103,9 @@ class Queue:
     def extend(self):
         self.__data.append(None)
 
+    def passed(self, n):
+        self.__data.pop(n)
+
 
 class AFloodCache:
     __slots__ = ("__cache", "__mutex")
@@ -118,7 +122,6 @@ class AFloodCache:
 
             async def reply(self, *args, **kwargs):
                 return await self.__message.reply(*args, **kwargs)
-
 
             async def edit_text(self, *args, **kwargs):
                 r = self.__cache[self.__message.chat.id, self.__message.message_id] = await self.__message.edit_text(*args, **kwargs)
@@ -142,7 +145,7 @@ class AFloodCache:
             self.__mutex.clear()
             await asyncio.sleep(0.3)
 
-            return self.BoundAFloodMessageWrapper(self.__cache.get((self.__message .chat.id, self.__message .message_id), self.__message ), self.__cache)
+            return self.BoundAFloodMessageWrapper(self.__cache.get((self.__message.chat.id, self.__message.message_id), self.__message), self.__cache)
 
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             self.__mutex.set()
@@ -172,6 +175,7 @@ class QueueBot(BaseBot):
         self._dp.register_callback_query_handler(self.__up, GroupFilter(group_id), PrefixCheckFilter("qup"))
         self._dp.register_callback_query_handler(self.__down, GroupFilter(group_id), PrefixCheckFilter("qdown"))
         # self._dp.register_callback_query_handler(self.__finalize_cbq, GroupFilter(group_id), PrefixCheckFilter("qfinalize"))
+        self._dp.register_callback_query_handler(self.__pass, GroupFilter(group_id), PrefixCheckFilter("qpass"))
         self._dp.register_message_handler(self.__finalize_cmd, GroupFilter(group_id), commands=["qfinalize"])
 
     async def __create_queue(self, message: Message):
@@ -180,9 +184,10 @@ class QueueBot(BaseBot):
             m = await message.reply("<b>Сдесь могла быть ваша куеуе</b>", parse_mode="html")
         else:
             await message.reply("<b>Сдесь могла быть ваша куеуе, но вы не умеете в названия переменных</b>", parse_mode="html")
+            return
 
         await m.edit_text(
-            f"<b>куеуе = \"</b><i>{qname}</i><b>\" :</b>",
+            "<b>куеуе" + (f" = \"</b><i>{qname}</i><b>\" " if qname else "") + ":</b>",
             parse_mode="html",
             reply_markup=InlineKeyboardMarkup(
                 row_width=2,
@@ -195,12 +200,12 @@ class QueueBot(BaseBot):
                         InlineKeyboardButton(text="pop", callback_data=f"qpop {m.chat.id} {m.message_id}"),
                         InlineKeyboardButton(text="down", callback_data=f"qdown {m.chat.id} {m.message_id}")
                     ],
-                    # [
-                    #     InlineKeyboardButton(text=" ", callback_data=f" ")
-                    # ],
-                    # [
-                    #     InlineKeyboardButton(text="finalize", callback_data=f"qfinalize {m.chat.id} {m.message_id}")
-                    # ],
+                    [
+                        InlineKeyboardButton(text=choice(("\U0001f31d", "\U0001f31a")), callback_data=" ")
+                    ],
+                    [
+                        InlineKeyboardButton(text="нажать после сдачи", callback_data=f"qpass {m.chat.id} {m.message_id}")
+                    ],
                 ]
             )
         )
@@ -252,6 +257,24 @@ class QueueBot(BaseBot):
                     del q[r.pos]
                     await message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_markup)
                     await query.answer("Popped")
+                    return
+            await query.answer("UserNotFoundException")
+
+    async def __pass(self, query: CallbackQuery):
+        async with self.__afloodcache(query.message) as message:
+            if (q := Queue(message.html_text)) is None:
+                await query.answer("NullPointerException")
+                return
+
+            if q.final:
+                await query.answer("AccessToFinalQueueException")
+                return
+
+            for r in q:
+                if r is not None and r.uid == query.from_user.id:
+                    q.passed(r.pos)
+                    await message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_markup)
+                    await query.answer("Поздравляем с успешным отсислением из очереди")
                     return
             await query.answer("UserNotFoundException")
 
@@ -338,6 +361,5 @@ class QueueBot(BaseBot):
                 return
 
             q.final = True
-            await qmessage.edit_text(q.dump(), parse_mode="html", reply_markup=qmessage.reply_markup)
+            await qmessage.edit_text(q.dump(), parse_mode="html")
             await message.reply("Queue finalized")
-
