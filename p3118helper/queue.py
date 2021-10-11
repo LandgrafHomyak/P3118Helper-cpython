@@ -32,6 +32,225 @@ class PrefixCheckFilter(Filter):
         return cbq.data.startswith(self.__prefix)
 
 
+class QueueMessage:
+    __slots__ = "__final", "__name", "__tg_message", "__queues", "__mutex", "__key", "__first_slot"
+    __global_pattern = re.compile(r"^(final|open) куеуе <\s*u\s*><\s*b\s*><\s*i\s*>(\w+)</\s*i\s*></\s*b\s*></\s*u\s*> {([\s\S]+)}$")
+    __header_pattern = re.compile(r"^<\s*u\s*>(\w)</\s*u\s*>:$")
+    __row_pattern = re.compile(r"^<\s*code\s*> {2}(\d+) ?</\s*code\s*>(?:<\s*a\s+href=['\"]?tg://user\?id=(\d+)['\"]?\s*>(.+)</\s*a\s*>|)$")
+
+    class ParseError(ValueError):
+        pass
+
+    class MessageKey:
+        __slots__ = "__chat", "__message"
+
+        @property
+        def chat(self):
+            return self.__chat
+
+        @property
+        def message(self):
+            return self.__message
+
+        def __new__(cls, chat, message):
+            self = super().__new__(cls)
+            self.__chat = chat
+            self.__message = message
+            return self
+
+        def __eq__(self, other):
+            if not isinstance(other, type(self)):
+                raise TypeError
+            return self.__chat == other.__chat and self.__message == other.__message
+
+        def __hash__(self):
+            return hash((self.__chat, self.__message))
+
+    class QueueSlot:
+        __slots__ = "__uid", "__display_name", "__prev", "__next", "__master"
+
+        @property
+        def uid(self):
+            return self.__uid
+
+        @property
+        def display_name(self):
+            return self.__display_name
+
+        @property
+        def _next(self):
+            return self.__next
+
+        @_next.setter
+        def _next(self, v):
+            if v is None:
+                if self.__next is not None:
+                    self.__next._prev = None
+                self.__next = None
+                return
+
+            if not isinstance(v, type(self)):
+                raise TypeError
+
+            if self.__next is not None:
+                self.__next._prev = None
+            self.__next = v
+            if v.__prev is not self:
+                v._prev = self
+
+        @property
+        def _prev(self):
+            return self.__prev
+
+        @_prev.setter
+        def _prev(self, v):
+            if v is None:
+                if self.__prev is not None:
+                    self.__prev.__next = None
+                self.__prev = None
+                return
+
+            if not isinstance(v, type(self)):
+                raise TypeError
+
+            if self.__prev is not None:
+                self.__prev._next = None
+            self.__prev = v
+            if v.__next is not self:
+                v._next = self
+
+        def __new__(cls, uid, display_name, master):
+            self = super().__new__(cls)
+            self.__uid = uid
+            self.__display_name = display_name
+            self.__master = master
+            self.__next = None
+            self.__prev = None
+            return self
+
+        @classmethod
+        def empty(cls, master):
+            return cls(None, None, master)
+
+    class QueueData:
+        __slots__ = "__first_slot", "__last_slot", "__name"
+
+        @property
+        def name(self):
+            return self.__name
+
+        def __new__(cls, name):
+            self = super().__new__(cls)
+            self.__name = name
+            self.__first_slot = None
+            self.__last_slot = None
+            return self
+
+        def _append(self, slot):
+            if not isinstance(slot, QueueMessage.QueueSlot):
+                raise TypeError
+
+            if self.__first_slot is None:
+                slot._prev = None
+                slot._next = None
+                self.__first_slot = self.__last_slot = slot
+            else:
+                slot._prev = self.__last_slot
+                self.__last_slot = slot
+                slot._next = None
+
+        def __len__(self):
+            p = self.__first_slot
+            c = 1
+            while p is not self.__last_slot and p._next is not None:
+                c += 1
+                p = p._next
+            return c
+
+        def __getitem__(self, i):
+            if i >= 0:
+                p = self.__first_slot
+                while i > 0 and p is not self.__last_slot and p._next is not None:
+                    i -= 1
+                    p = p._next
+            else:
+                p = self.__last_slot
+                i += 1
+                while i < 0 and p is not self.__first_slot and p._prev is not None:
+                    i += 1
+                    p = p._prev
+            if i != 0:
+                raise IndexError("Queue index out of range")
+            return p
+
+        def __bool__(self):
+            return self.__first_slot is not None
+
+    @property
+    def final(self):
+        return self.__final
+
+    # @final.setter
+    # def final(self, v):
+    #     if bool(v) and not self.__final:
+    #         raise ValueError("Unexpected value for field final")
+    #     self.__final = bool(v)
+
+    @property
+    def name(self):
+        return self.__name
+
+    @property
+    def queue_count(self):
+        return len(self.__queues)
+
+    @property
+    def queue_names(self):
+        return tuple(map(self.QueueData.name.__get__, self.__queues))
+
+    def __new__(cls, orig_message: Message):
+        super_match = cls.__global_pattern.search(orig_message.html_text)
+        if super_match is None:
+            raise cls.ParseError("Message is not a queue")
+
+        inheritance, name, data = super_match.group(1), super_match.group(2), super_match.group(3)
+        last_queue = single_queue = cls.QueueData(None)
+        queues = []
+        for row in filter(lambda s: not s.isspace(), data.split("\n")):
+            if (match := cls.__header_pattern.search(row)) is not None:
+                queues.append(last_queue := cls.QueueData(match.group(1)))
+            elif (match := cls.__row_pattern.search(row)) is not None:
+                if not match.group(2):
+                    last_queue._append(cls.QueueSlot.empty(last_queue))
+                else:
+                    last_queue._append(cls.QueueSlot(int(match.group(2)), match.group(3), last_queue))
+            else:
+                raise cls.ParseError("Invalid row")
+        if last_queue is not single_queue and len(single_queue) > 0:
+            raise cls.ParseError("Queue has unbound rows")
+
+        last_slot = None
+        for q in filter(bool, queues):
+            q[0]._prev = last_slot
+            last_slot = q[-1]
+        del last_slot
+
+        if not queues:
+            queues.append(single_queue)
+        self = super().__new__(cls)
+        self.__name = name
+        self.__final = inheritance == "final"
+        self.__tg_message = orig_message
+        self.__key = cls.MessageKey(orig_message.chat.id, orig_message.message_id)
+        self.__queues = tuple(queues)
+        self.__first_slot = queues[0][0]
+
+        return self
+
+    def finalize(self):
+        self.__final = True
+
+
 class Queue:
     __slots__ = ("final", "name", "__data")
     __global_pattern = re.compile(r"""^<\s*b\s*>(?:(final)\s+|)куеуе(?:\s+=\s+"(?:</\s*b\s*><\s*i\s*>(.*)</\s*i\s*><\s*b\s*>|)"\s+|):</\s*b\s*>(?:\n\n([\s\S]+)|)$""")
