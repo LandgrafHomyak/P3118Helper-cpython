@@ -1,5 +1,7 @@
 import asyncio
+import io
 import re
+from asyncio import Event
 from io import StringIO
 from random import choice
 
@@ -33,8 +35,8 @@ class PrefixCheckFilter(Filter):
 
 
 class QueueMessage:
-    __slots__ = "__final", "__name", "__tg_message", "__queues", "__mutex", "__key", "__first_slot"
-    __global_pattern = re.compile(r"^(final|open) куеуе <\s*u\s*><\s*b\s*><\s*i\s*>(\w+)</\s*i\s*></\s*b\s*></\s*u\s*> {([\s\S]+)}$")
+    __slots__ = "__final", "__name", "__tg_message", "__queues", "__mutex", "__key", "__first_slot", "__processed_users"
+    __global_pattern = re.compile(r"^<\s*b\s*>(final|open)</\s*b\s*> куеуе <\s*u\s*><\s*b\s*><\s*i\s*>(\w+)</\s*i\s*></\s*b\s*></\s*u\s*> {([\s\S]+)}$")
     __header_pattern = re.compile(r"^<\s*u\s*>(\w)</\s*u\s*>:$")
     __row_pattern = re.compile(r"^<\s*code\s*> {2}(\d+) ?</\s*code\s*>(?:<\s*a\s+href=['\"]?tg://user\?id=(\d+)['\"]?\s*>(.+)</\s*a\s*>|)$")
 
@@ -57,6 +59,15 @@ class QueueMessage:
             self.__chat = chat
             self.__message = message
             return self
+
+        @classmethod
+        def from_message(cls, m):
+            if isinstance(m, Message):
+                return cls(m.chat.id, m.message_id)
+            elif isinstance(m, QueueMessage):
+                return m.key
+            else:
+                raise TypeError
 
         def __eq__(self, other):
             if not isinstance(other, type(self)):
@@ -186,6 +197,14 @@ class QueueMessage:
         def __bool__(self):
             return self.__first_slot is not None
 
+    class UserAlreadySynchronized(Exception):
+        __slots__ = "callback_query"
+
+        def __new__(cls, cbq):
+            self = super().__new__(cls)
+            self.callback_query = cbq
+            return self
+
     @property
     def final(self):
         return self.__final
@@ -208,7 +227,11 @@ class QueueMessage:
     def queue_names(self):
         return tuple(map(self.QueueData.name.__get__, self.__queues))
 
-    def __new__(cls, orig_message: Message):
+    @property
+    def key(self):
+        return self.__key
+
+    def __new__(cls, orig_message: Message, mutex):
         super_match = cls.__global_pattern.search(orig_message.html_text)
         if super_match is None:
             raise cls.ParseError("Message is not a queue")
@@ -233,7 +256,6 @@ class QueueMessage:
         for q in filter(bool, queues):
             q[0]._prev = last_slot
             last_slot = q[-1]
-        del last_slot
 
         if not queues:
             queues.append(single_queue)
@@ -241,14 +263,94 @@ class QueueMessage:
         self.__name = name
         self.__final = inheritance == "final"
         self.__tg_message = orig_message
-        self.__key = cls.MessageKey(orig_message.chat.id, orig_message.message_id)
+        self.__key = cls.MessageKey.from_message(orig_message)
         self.__queues = tuple(queues)
         self.__first_slot = queues[0][0]
+        self.__processed_users = set()
+        self.__mutex = mutex
 
         return self
 
     def finalize(self):
         self.__final = True
+
+    def __getitem__(self, i):
+        return self.__queues[i]
+
+    def sync_user(self, uid: int):
+        r = uid in self.__processed_users
+        self.__processed_users.add(uid)
+        return r
+
+    async def answer(self, cbq: CallbackQuery, message: str):
+        await cbq.answer(message)
+        await self.__mutex.wait(self.key, self.__update)
+
+    def dump(self):
+        s = io.StringIO()
+        s.write(f"<b>{'final' if self.__final else 'open'}</b>")
+        s.write(f" куеуе ")
+        s.write(f"<u><b><i>{self.__name}</i></b></u>")
+        s.write(" {\n")
+        for q in self.__queues:
+            if q.name is not None:
+                s.write(f"<u>{q.name}</u>:\n")
+            for i in range(len(q)):  # todo make iterators for queue
+                p = q[i]
+                if p:
+                    s.write(f"<code>  {i} </code><a href='tg://user?id={p.uid}'>{p.display_name}</a>\n")
+                else:
+                    s.write(f"<code>  {i}</code>\n")
+        s.write("}")
+        s.seek(0)
+        return s.read()
+
+    async def __update(self):
+        await self.__tg_message.edit_text(self.dump(), parse_mode="html", reply_markup=self.__tg_message.reply_markup)
+
+
+class QueueSynchronizer:
+    DELAY = 0.4
+    __slots__ = "__common_mutex", "__message_pool"
+
+    class CommonMutex:
+        __slots__ = "__queue", "__task"
+
+        def __new__(cls):
+            self = super().__new__(cls)
+            self.__queue = dict()
+            self.__task = None
+            return self
+
+        async def __tgenerator(self):
+            while self.__queue:
+                await asyncio.sleep(QueueSynchronizer.DELAY)
+                for key in self.__queue.keys():
+                    mutex, callback = self.__queue.pop(key)
+                    mutex.set()
+                    asyncio.get_running_loop().create_task(callback)
+                    break  # Suppressing StopIteration without try-catch
+
+        async def wait(self, key, callback):
+            if key not in self.__queue:
+                self.__queue[key] = (Event(), callback)
+
+            if self.__task is None or self.__task.done():
+                self.__task = asyncio.get_running_loop().create_task(self.__tgenerator())
+
+            await self.__queue[key][0].wait()
+
+    def __new__(cls):
+        self = super().__new__(cls)
+        self.__message_pool = dict()
+        self.__common_mutex = cls.CommonMutex()
+        return self
+
+    def __call__(self, orig_message: Message):
+        key = QueueMessage.MessageKey.from_message(orig_message)
+        if key not in self.__message_pool:
+            self.__message_pool[key] = QueueMessage(orig_message, self.__common_mutex)
+        return self.__message_pool[key]
 
 
 class Queue:
