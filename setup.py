@@ -1,4 +1,9 @@
-from setuptools import setup
+from setuptools import setup, Extension
+
+ext_queue = Extension(
+    name="_queue",
+    sources=["p3118helper/_queue.c"]
+)
 
 setup(
     name="P3118Helper",
@@ -16,5 +21,9 @@ setup(
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3.8",
         "Typing :: Typed"
+    ],
+    ext_package="p3118helper",
+    ext_modules=[
+        ext_queue
     ]
 )
