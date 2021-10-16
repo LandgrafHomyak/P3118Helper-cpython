@@ -8,7 +8,7 @@ ext_queue = Extension(
 setup(
     name="P3118Helper",
     packages=["p3118helper"],
-    version="0.1.0",
+    version="0.2.0rc0",
     install_requires=["aiogram"],
     url="https://github.com/LandgrafHomyak/P3118Helper-cpython",
     author="Andrew Golovashevich",
