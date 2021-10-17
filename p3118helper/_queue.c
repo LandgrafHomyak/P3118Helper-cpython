@@ -156,7 +156,7 @@ static PyMethodDef P3118HelperQueue_QueueStruct_Methods[] = {
     {"iter_slots", (PyCFunction) P3118HelperQueue_QueueStruct_IterSlots, METH_NOARGS},
     {"find_user",  (PyCFunction) P3118HelperQueue_QueueStruct_FindUser,  METH_O},
     {"push",       (PyCFunction) P3118HelperQueue_QueueStruct_Push,      METH_VARARGS},
-    {"finalize",       (PyCFunction) P3118HelperQueue_QueueStruct_Finalize,      METH_NOARGS},
+    {"finalize",   (PyCFunction) P3118HelperQueue_QueueStruct_Finalize,  METH_NOARGS},
     {NULL}
 };
 
@@ -196,6 +196,8 @@ static P3118HelperQueue_QueueForwardIterator_Object *P3118HelperQueue_QueueMeta_
 
 static P3118HelperQueue_QueueReverseIterator_Object *P3118HelperQueue_QueueMeta_ReverseIter(P3118HelperQueue_QueueMeta_Object *self);
 
+static PyObject *P3118HelperQueue_QueueMeta_GetIndex(P3118HelperQueue_QueueMeta_Object *self);
+
 static PyMappingMethods P3118HelperQueue_QueueMeta_Mapping = {
     .mp_length = (lenfunc) P3118HelperQueue_QueueMeta_Len, /* avoiding optimization of negative indices in .sq_item */
 };
@@ -214,6 +216,11 @@ static PyMemberDef P3118HelperQueue_QueueMeta_Members[] = {
     {NULL}
 };
 
+static PyGetSetDef P3118HelperQueue_QueueMeta_GetSet[] = {
+    {"index", (getter) P3118HelperQueue_QueueMeta_GetIndex, NULL},
+    {NULL}
+};
+
 static PyTypeObject P3118HelperQueue_QueueMeta_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "p3118helper.queue.QueueStruct.Queue",
@@ -225,7 +232,8 @@ static PyTypeObject P3118HelperQueue_QueueMeta_Type = {
     .tp_dealloc = (destructor) P3118HelperQueue_QueueMeta_Dealloc,
     .tp_iter = (getiterfunc) P3118HelperQueue_QueueMeta_ForwardIter,
     .tp_methods = P3118HelperQueue_QueueMeta_Methods,
-    .tp_members = P3118HelperQueue_QueueMeta_Members
+    .tp_members = P3118HelperQueue_QueueMeta_Members,
+    .tp_getset = P3118HelperQueue_QueueMeta_GetSet
 };
 
 
@@ -249,6 +257,14 @@ static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueSlot_Up(P3118Hel
 
 static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueSlot_Down(P3118HelperQueue_QueueSlot_Object *self);
 
+static PyObject *P3118HelperQueue_QueueSlot_Pop(P3118HelperQueue_QueueSlot_Object *self);
+
+static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueSlot_InsertBefore(P3118HelperQueue_QueueSlot_Object *self, P3118HelperQueue_QueueSlotInput_Object *data);
+
+static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueSlot_InsertAfter(P3118HelperQueue_QueueSlot_Object *self, P3118HelperQueue_QueueSlotInput_Object *data);
+
+static P3118HelperQueue_QueueMeta_Object *P3118HelperQueue_QueueSlot_GetQueue(P3118HelperQueue_QueueSlot_Object *self);
+
 static PyMemberDef P3118HelperQueue_QueueSlot_Members[] = {
     {"uid", T_OBJECT, offsetof(P3118HelperQueue_QueueSlot_Object, uid), READONLY},
     {NULL}
@@ -256,6 +272,7 @@ static PyMemberDef P3118HelperQueue_QueueSlot_Members[] = {
 
 static PyGetSetDef P3118HelperQueue_QueueSlot_GetSet[] = {
     {"display_name", (getter) P3118HelperQueue_QueueSlot_GetDisplayName, (setter) P3118HelperQueue_QueueSlot_SetDisplayName},
+    {"queue",        (getter) P3118HelperQueue_QueueSlot_GetQueue, NULL},
     {NULL}
 };
 
@@ -264,10 +281,13 @@ static PyNumberMethods P3118HelperQueue_QueueSlot_Number = {
 };
 
 static PyMethodDef P3118HelperQueue_QueueSlot_Methods[] = {
-    {"clear", (PyCFunction) P3118HelperQueue_QueueSlot_Clear, METH_NOARGS},
-    {"fill",  (PyCFunction) P3118HelperQueue_QueueSlot_Fill,  METH_O},
-    {"up",    (PyCFunction) P3118HelperQueue_QueueSlot_Up,    METH_NOARGS},
-    {"down",  (PyCFunction) P3118HelperQueue_QueueSlot_Down,  METH_NOARGS},
+    {"clear",         (PyCFunction) P3118HelperQueue_QueueSlot_Clear,        METH_NOARGS},
+    {"fill",          (PyCFunction) P3118HelperQueue_QueueSlot_Fill,         METH_O},
+    {"up",            (PyCFunction) P3118HelperQueue_QueueSlot_Up,           METH_NOARGS},
+    {"down",          (PyCFunction) P3118HelperQueue_QueueSlot_Down,         METH_NOARGS},
+    {"pop",           (PyCFunction) P3118HelperQueue_QueueSlot_Pop,          METH_NOARGS},
+    {"insert_before", (PyCFunction) P3118HelperQueue_QueueSlot_InsertBefore, METH_O},
+    {"insert_after",  (PyCFunction) P3118HelperQueue_QueueSlot_InsertAfter,  METH_O},
     {NULL}
 };
 
@@ -610,7 +630,7 @@ static P3118HelperQueue_QueueStruct_Object *P3118HelperQueue_QueueStruct_New(PyT
     PyObject *queue_name;
     Py_ssize_t dict_iter_pos = 0;
     P3118HelperQueue_QueueMeta_Object *current_queue_meta;
-    P3118HelperQueue_QueueSlot_Object *last_slot = NULL;
+    P3118HelperQueue_QueueSlotLinker *last_slot = NULL;
     P3118HelperQueue_QueueSlot_Object *current_slot;
     PyObject *last_item;
     int final;
@@ -684,8 +704,8 @@ static P3118HelperQueue_QueueStruct_Object *P3118HelperQueue_QueueStruct_New(PyT
 
                 if (last_slot != NULL)
                 {
-                    last_slot->linker.next = (P3118HelperQueue_QueueSlotLinker *) current_slot;
-                    current_slot->linker.prev = (P3118HelperQueue_QueueSlotLinker *) last_slot;
+                    last_slot->next = (P3118HelperQueue_QueueSlotLinker *) current_slot;
+                    current_slot->linker.prev = last_slot;
                 }
                 current_slot->linker.next = (P3118HelperQueue_QueueSlotLinker *) current_queue_meta;
                 current_queue_meta->sentinel.prev = (P3118HelperQueue_QueueSlotLinker *) current_slot;
@@ -727,14 +747,22 @@ static P3118HelperQueue_QueueStruct_Object *P3118HelperQueue_QueueStruct_New(PyT
                     return NULL;
                 }
                 Py_DECREF(last_item);
-                last_slot = current_slot;
+                last_slot = (P3118HelperQueue_QueueSlotLinker *) current_slot;
             }
 
             if (dict_iter_pos == 0) /* true if PyDict_Next not called <=> entered by goto from single queue */
             {
                 break;
             }
-            last_slot = (P3118HelperQueue_QueueSlot_Object *) current_queue_meta;
+            if (current_queue_meta->sentinel.prev == NULL)
+            {
+                current_queue_meta->sentinel.prev = last_slot;
+                if (last_slot != NULL)
+                {
+                    last_slot->next = (P3118HelperQueue_QueueSlotLinker *) current_queue_meta;
+                }
+            }
+            last_slot = (P3118HelperQueue_QueueSlotLinker *) current_queue_meta;
             current_queue_meta++;
         }
     }
@@ -803,6 +831,35 @@ static P3118HelperQueue_QueueMeta_Object *P3118HelperQueue_QueueStruct_GetItem(P
 }
 
 
+static void P3118HelperQueue_QueueMeta_Pop(P3118HelperQueue_QueueMeta_Object *self, P3118HelperQueue_QueueSlot_Object *slot)
+{
+    if (self->first_slot == slot)
+    {
+        self->first_slot = (P3118HelperQueue_QueueSlot_Object *) slot->linker.next;
+    }
+    if (slot->linker.prev != NULL)
+    {
+        slot->linker.prev->next = slot->linker.next;
+    }
+    if (slot->linker.next != NULL)
+    {
+        slot->linker.next->prev = slot->linker.prev;
+    }
+    slot->linker.prev = NULL;
+    slot->linker.next = NULL;
+    slot->master = self;
+    self->magic++;
+    self->master->magic++;
+    if (Py_REFCNT(self->master) > 0)
+    {
+        P3118HelperQueue_QueueSlot_IncRef(slot);
+        if (Py_REFCNT(slot) == 1)/* triggering dealloc */
+        {
+            Py_DECREF(slot);
+        }
+    }
+}
+
 static int P3118HelperQueue_QueueMeta_PopLast(P3118HelperQueue_QueueMeta_Object *self)
 {
     P3118HelperQueue_QueueSlot_Object *removed_slot;
@@ -811,32 +868,7 @@ static int P3118HelperQueue_QueueMeta_PopLast(P3118HelperQueue_QueueMeta_Object 
     {
         return 0;
     }
-    removed_slot = (P3118HelperQueue_QueueSlot_Object *) self->sentinel.prev;
-    if (self->first_slot == removed_slot)
-    {
-        self->first_slot = (P3118HelperQueue_QueueSlot_Object *) removed_slot->linker.next;
-    }
-    if (removed_slot->linker.prev != NULL)
-    {
-        removed_slot->linker.prev->next = removed_slot->linker.next;
-    }
-    if (removed_slot->linker.next != NULL)
-    {
-        removed_slot->linker.next->prev = removed_slot->linker.prev;
-    }
-    removed_slot->linker.prev = NULL;
-    removed_slot->linker.next = NULL;
-    removed_slot->master = self;
-    self->magic++;
-    self->master->magic++;
-    if (Py_REFCNT(self->master) > 0)
-    {
-        P3118HelperQueue_QueueSlot_IncRef(removed_slot);
-        if (Py_REFCNT(removed_slot) == 1)
-        {
-            Py_DECREF(removed_slot); /* triggering dealloc */
-        }
-    }
+    P3118HelperQueue_QueueMeta_Pop(self, (P3118HelperQueue_QueueSlot_Object *) self->sentinel.prev);
     return 1;
 }
 
@@ -846,6 +878,38 @@ static void P3118HelperQueue_QueueMeta_RemoveExtra(P3118HelperQueue_QueueMeta_Ob
     {
         P3118HelperQueue_QueueMeta_PopLast(self);
     }
+}
+
+static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueMeta_Insert(P3118HelperQueue_QueueMeta_Object *self, P3118HelperQueue_QueueSlotLinker *next)
+{
+    P3118HelperQueue_QueueSlot_Object *new_slot;
+
+    new_slot = P3118HelperQueue_SlotsArena_Alloc(&(self->master->start_arena));
+    if (new_slot == NULL)
+    {
+        return NULL;
+    }
+    new_slot->linker.prev = next->prev;
+    if (new_slot->linker.prev != NULL)
+    {
+        new_slot->linker.prev->next = (P3118HelperQueue_QueueSlotLinker *) new_slot;
+    }
+    new_slot->linker.next = (P3118HelperQueue_QueueSlotLinker *) next;
+    next->prev = (P3118HelperQueue_QueueSlotLinker *) new_slot;
+    if (self->first_slot == (P3118HelperQueue_QueueSlot_Object *) next)
+    {
+        self->first_slot = new_slot;
+    }
+    new_slot->master = self;
+    new_slot->master->magic++;
+    new_slot->master->master->magic++;
+
+    return new_slot;
+}
+
+static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueMeta_Append(P3118HelperQueue_QueueMeta_Object *self)
+{
+    return P3118HelperQueue_QueueMeta_Insert(self, (P3118HelperQueue_QueueSlotLinker *) self);
 }
 
 static void P3118HelperQueue_QueueStruct_Dealloc(P3118HelperQueue_QueueStruct_Object *self)
@@ -968,25 +1032,11 @@ static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueStruct_Push(P311
 
     if (slot == NULL || slot == (P3118HelperQueue_QueueSlot_Object *) &(self->entries[i]))
     {
-        slot = P3118HelperQueue_SlotsArena_Alloc(&(self->start_arena));
+        slot = P3118HelperQueue_QueueMeta_Append(&(self->entries[i]));
         if (slot == NULL)
         {
             return NULL;
         }
-        slot->linker.prev = self->entries[i].sentinel.prev;
-        if (slot->linker.prev != NULL)
-        {
-            slot->linker.prev->next = (P3118HelperQueue_QueueSlotLinker *) slot;
-        }
-        slot->linker.next = (P3118HelperQueue_QueueSlotLinker *) &(self->entries[i]);
-        self->entries[i].sentinel.prev = (P3118HelperQueue_QueueSlotLinker *) slot;
-        if (self->entries[i].first_slot == (P3118HelperQueue_QueueSlot_Object *) &(self->entries[i]))
-        {
-            self->entries[i].first_slot = slot;
-        }
-        slot->master = &(self->entries[i]);
-        self->magic++;
-        self->entries[i].magic++;
     }
     Py_INCREF(data->uid);
     slot->uid = data->uid;
@@ -1123,6 +1173,11 @@ static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueMeta_GetItem(P31
     return P3118HelperQueue_QueueSlot_IncRef((P3118HelperQueue_QueueSlot_Object *) p);
 }
 
+static PyObject *P3118HelperQueue_QueueMeta_GetIndex(P3118HelperQueue_QueueMeta_Object *self)
+{
+    return PyLong_FromSize_t((((uintptr_t) (self)) - ((uintptr_t) (&(self->master->entries[0])))) / sizeof(P3118HelperQueue_QueueMeta_Object));
+}
+
 static PyObject *P3118HelperQueue_QueueSlot_Str(P3118HelperQueue_QueueSlot_Object *self)
 {
     if (self->uid == NULL)
@@ -1218,18 +1273,32 @@ static PyObject *P3118HelperQueue_QueueSlot_Clear(P3118HelperQueue_QueueSlot_Obj
 
 static PyObject *P3118HelperQueue_QueueSlot_Fill(P3118HelperQueue_QueueSlot_Object *self, P3118HelperQueue_QueueSlotInput_Object *data)
 {
+    P3118HelperQueue_QueueSlot_Object *found;
+
     if (self->uid != NULL)
     {
         PyErr_Format(PyExc_ValueError, "slot is not empty");
         return NULL;
     }
-/* todo */
     if (Py_TYPE(data) != &P3118HelperQueue_QueueSlotInput_Type)
     {
 
         PyErr_Format(PyExc_TypeError, "data must be '%s' (got %R)", P3118HelperQueue_QueueSlotInput_Type.tp_name, Py_TYPE(data));
         return NULL;
     }
+
+    found = (P3118HelperQueue_QueueSlot_Object *) P3118HelperQueue_QueueStruct_FindUser(self->master->master, data->uid);
+    if (found == NULL)
+    {
+        return NULL;
+    }
+    if ((PyObject *) found != Py_None)
+    {
+        Py_DECREF(found);
+        PyErr_Format(PyExc_ValueError, "user with this id already in queue");
+        return NULL;
+    }
+    Py_DECREF(found);
 
     Py_INCREF(data->uid);
     self->uid = data->uid;
@@ -1276,26 +1345,12 @@ static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueSlot_Down(P3118H
     }
 
     if (p == NULL || p == (P3118HelperQueue_QueueSlot_Object *) self->master)
-    { /* todo add append */
-        p = P3118HelperQueue_SlotsArena_Alloc(&(self->master->master->start_arena));
+    {
+        p = P3118HelperQueue_QueueMeta_Append(self->master);
         if (p == NULL)
         {
             return NULL;
         }
-        p->linker.prev = self->master->sentinel.prev;
-        if (p->linker.prev != NULL)
-        {
-            p->linker.prev->next = (P3118HelperQueue_QueueSlotLinker *) p;
-        }
-        p->linker.next = (P3118HelperQueue_QueueSlotLinker *) self->master;
-        self->master->sentinel.prev = (P3118HelperQueue_QueueSlotLinker *) p;
-        if (self->master->first_slot == (P3118HelperQueue_QueueSlot_Object *) self->master)
-        {
-            self->master->first_slot = p;
-        }
-        p->master = self->master;
-        p->master->magic++;
-        p->master->master->magic++;
     }
 
 
@@ -1305,6 +1360,112 @@ static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueSlot_Down(P3118H
     self->display_name = NULL;
 
     return P3118HelperQueue_QueueSlot_IncRef(p);
+}
+
+static PyObject *P3118HelperQueue_QueueSlot_Pop(P3118HelperQueue_QueueSlot_Object *self)
+{
+    if (self->linker.prev == NULL && self->linker.next == NULL)
+    {
+        PyErr_Format(PyExc_TypeError, "this slot already popped");
+        return NULL;
+    }
+
+    P3118HelperQueue_QueueMeta_Pop(self->master, self);
+    P3118HelperQueue_QueueMeta_RemoveExtra(self->master);
+    Py_RETURN_NONE;
+}
+
+static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueSlot_InsertBefore(P3118HelperQueue_QueueSlot_Object *self, P3118HelperQueue_QueueSlotInput_Object *data)
+{
+    P3118HelperQueue_QueueSlot_Object *slot;
+
+    if (self->linker.prev == NULL && self->linker.next == NULL)
+    {
+        PyErr_Format(PyExc_TypeError, "this slot not bound to queue");
+        return NULL;
+    }
+
+    if ((PyObject *) data != Py_None && Py_TYPE(data) != &P3118HelperQueue_QueueSlotInput_Type)
+    {
+        PyErr_Format(PyExc_TypeError, "data must be '%s' or None", P3118HelperQueue_QueueSlotInput_Type.tp_name);
+        return NULL;
+    }
+
+    slot = P3118HelperQueue_QueueMeta_Insert(self->master, (P3118HelperQueue_QueueSlotLinker *) self);
+    if (slot == NULL)
+    {
+        return NULL;
+    }
+
+    if ((PyObject *) data == Py_None)
+    {
+        slot->uid = NULL;
+        slot->display_name = NULL;
+    }
+    else
+    {
+        Py_INCREF(data->uid);
+        slot->uid = data->uid;
+        Py_INCREF(data->display_name);
+        self->display_name = data->display_name;
+    }
+
+    return P3118HelperQueue_QueueSlot_IncRef(slot);
+}
+
+static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueSlot_InsertAfter(P3118HelperQueue_QueueSlot_Object *self, P3118HelperQueue_QueueSlotInput_Object *data)
+{
+    P3118HelperQueue_QueueSlot_Object *slot;
+
+    if (self->linker.prev == NULL && self->linker.next == NULL)
+    {
+        PyErr_Format(PyExc_TypeError, "this slot not bound to queue");
+        return NULL;
+    }
+
+    if ((PyObject *) data != Py_None && Py_TYPE(data) != &P3118HelperQueue_QueueSlotInput_Type)
+    {
+        PyErr_Format(PyExc_TypeError, "data must be '%s' or None", P3118HelperQueue_QueueSlotInput_Type.tp_name);
+        return NULL;
+    }
+
+    if (self->linker.next == NULL)
+    {
+        PyErr_Format(PyExc_RuntimeError, "can't insert after slot");
+        return NULL;
+    }
+
+    slot = P3118HelperQueue_QueueMeta_Insert(self->master, (P3118HelperQueue_QueueSlotLinker *) self->linker.next);
+    if (slot == NULL)
+    {
+        return NULL;
+    }
+
+    if ((PyObject *) data == Py_None)
+    {
+        slot->uid = NULL;
+        slot->display_name = NULL;
+    }
+    else
+    {
+        Py_INCREF(data->uid);
+        slot->uid = data->uid;
+        Py_INCREF(data->display_name);
+        self->display_name = data->display_name;
+    }
+
+    return P3118HelperQueue_QueueSlot_IncRef(slot);
+}
+
+static P3118HelperQueue_QueueMeta_Object *P3118HelperQueue_QueueSlot_GetQueue(P3118HelperQueue_QueueSlot_Object *self)
+{
+    if (self->linker.prev == NULL && self->linker.next == NULL)
+    {
+        PyErr_Format(PyExc_AttributeError, "tis slot was unbound");
+        return NULL;
+    }
+
+    return P3118HelperQueue_QueueMeta_IncRef(self->master);
 }
 
 static PyObject *iter_self(PyObject *self)

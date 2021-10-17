@@ -91,7 +91,6 @@ class QueueMessage(QueueStruct):
 
         return cls(name, inheritance == "final", queues, message, mutex)
 
-
     def dump(self):
         s = io.StringIO()
         s.write(f"<b>{'final' if self.final else 'open'}</b>")
@@ -189,8 +188,10 @@ class QueueBot(BaseBot):
         self._dp.register_callback_query_handler(self.__pop, GroupFilter(group_id), PrefixCheckFilter("qpop"))
         self._dp.register_callback_query_handler(self.__up, GroupFilter(group_id), PrefixCheckFilter("qup"))
         self._dp.register_callback_query_handler(self.__down, GroupFilter(group_id), PrefixCheckFilter("qdown"))
-        # # self._dp.register_callback_query_handler(self.__finalize_cbq, GroupFilter(group_id), PrefixCheckFilter("qfinalize"))
-        # self._dp.register_callback_query_handler(self.__pass, GroupFilter(group_id), PrefixCheckFilter("qpass"))
+        self._dp.register_callback_query_handler(self.__prev, GroupFilter(group_id), PrefixCheckFilter("qprev"))
+        self._dp.register_callback_query_handler(self.__next, GroupFilter(group_id), PrefixCheckFilter("qnext"))
+        # self._dp.register_callback_query_handler(self.__finalize_cbq, GroupFilter(group_id), PrefixCheckFilter("qfinalize"))
+        self._dp.register_callback_query_handler(self.__pass, GroupFilter(group_id), PrefixCheckFilter("qpass"))
         self._dp.register_message_handler(self.__finalize_cmd, GroupFilter(group_id), commands=["qfinalize"])
 
     async def __create_queue(self, message: Message):
@@ -214,6 +215,10 @@ class QueueBot(BaseBot):
                     [
                         InlineKeyboardButton(text="pop", callback_data=f"qpop"),
                         InlineKeyboardButton(text="down", callback_data=f"qdown")
+                    ],
+                    [
+                        InlineKeyboardButton(text="prev", callback_data=f"qprev"),
+                        InlineKeyboardButton(text="next", callback_data=f"qnext")
                     ],
                     [
                         InlineKeyboardButton(text=choice(("\U0001f31d", "\U0001f31a")), callback_data=" ")
@@ -279,24 +284,6 @@ class QueueBot(BaseBot):
             await query.answer("Popped")
             await queue.update()
 
-    # async def __pass(self, query: CallbackQuery):
-    #     async with self.__afloodcache(query.message) as message:
-    #         if (q := Queue(message.html_text)) is None:
-    #             await query.answer("NullPointerException")
-    #             return
-    #
-    #         if q.final:
-    #             await query.answer("AccessToFinalQueueException")
-    #             return
-    #
-    #         for r in q:
-    #             if r is not None and r.uid == query.from_user.id:
-    #                 q.passed(r.pos)
-    #                 await message.edit_text(q.dump(), parse_mode="html", reply_markup=message.reply_markup)
-    #                 await query.answer("Поздравляем с успешным отсислением из очереди")
-    #                 return
-    #         await query.answer("UserNotFoundException")
-    #
     async def __up(self, query: CallbackQuery):
         try:
             queue = self.__synchroonizer(query.message)
@@ -321,6 +308,56 @@ class QueueBot(BaseBot):
                 await query.answer("Time goes faster...")
                 await queue.update()
 
+    async def __prev(self, query: CallbackQuery):
+        try:
+            queue = self.__synchroonizer(query.message)
+        except QueueMessage.ParseError:
+            return await self.__answer_noqueue(query)
+        slot = queue.find_user(query.from_user.id)
+        if slot is None:
+            return await self.__answer_nouser(query)
+        else:
+            if queue.final:
+                return await self.__answer_final(query)
+
+            if queue.user_synced(query.from_user.id):
+                return await query.answer("")
+
+            i = slot.queue.index
+            if i == 0:
+                return await query.answer("You already at start")
+            data = QueueStruct.user(slot.uid, slot.display_name)
+            slot.clear()
+            queue.push(data, i - 1)
+
+            await query.answer("Queue changed")
+            await queue.update()
+
+    async def __next(self, query: CallbackQuery):
+        try:
+            queue = self.__synchroonizer(query.message)
+        except QueueMessage.ParseError:
+            return await self.__answer_noqueue(query)
+
+        slot = queue.find_user(query.from_user.id)
+        if slot is None:
+            return await self.__answer_nouser(query)
+        else:
+            if queue.final:
+                return await self.__answer_final(query)
+
+            if queue.user_synced(query.from_user.id):
+                return await query.answer("")
+
+            i = slot.queue.index
+            if i == len(queue) - 1:
+                return await query.answer("You already at end")
+            data = QueueStruct.user(slot.uid, slot.display_name)
+            slot.clear()
+            queue.push(data, i + 1)
+
+            await query.answer("Queue changed")
+            await queue.update()
 
     async def __down(self, query: CallbackQuery):
         try:
@@ -343,6 +380,26 @@ class QueueBot(BaseBot):
             await query.answer("Time goes slower...")
             await queue.update()
 
+    async def __pass(self, query: CallbackQuery):
+        try:
+            queue = self.__synchroonizer(query.message)
+        except QueueMessage.ParseError:
+            return await self.__answer_noqueue(query)
+
+        slot = queue.find_user(query.from_user.id)
+        if slot is None:
+            return await self.__answer_nouser(query)
+        else:
+            if queue.final:
+                return await self.__answer_final(query)
+
+            if queue.user_synced(query.from_user.id):
+                return await query.answer("")
+
+            slot.pop()
+
+            await query.answer("Поздравляем с успешным отсислением из очереди")
+            await queue.update()
 
     async def __finalize_cbq(self, query: CallbackQuery):
         try:
