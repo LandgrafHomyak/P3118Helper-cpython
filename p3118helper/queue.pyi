@@ -1,5 +1,5 @@
 from types import MappingProxyType
-from typing import NoReturn, Tuple, final, ClassVar, Coroutine, Optional, overload, Union, MappingView, Iterable, Iterator
+from typing import Container, NoReturn, Tuple, final, ClassVar, Coroutine, Optional, overload, Union, MappingView, Iterable, Iterator
 
 from aiogram.types import Message, CallbackQuery
 
@@ -223,4 +223,4 @@ class QueueSynchronizer:
 
 
 class QueueBot(BaseBot):
-    def __init__(self, token: str, *, group_id: int) -> NoReturn: ...
+    def __init__(self, token: str, *, group_id: int, admins: Container[int]) -> NoReturn: ...
