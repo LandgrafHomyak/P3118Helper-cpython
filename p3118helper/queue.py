@@ -178,10 +178,11 @@ class QueueSynchronizer:
 
 
 class QueueBot(BaseBot):
-    __slots__ = ("__synchronizer",)
+    __slots__ = ("__synchronizer", "__admins_list")
 
-    def __init__(self, token, *, group_id, **kwargs):
-        super().__init__(token, group_id=group_id, **kwargs)
+    def __init__(self, token, *, group_id, admins, **kwargs):
+        super().__init__(token, group_id=group_id, admins=admins, **kwargs)
+        self.__admins_list = admins
         self.__synchroonizer = QueueSynchronizer()
         self._dp.register_message_handler(self.__create_queue, GroupFilter(group_id), commands=["queue"])
         self._dp.register_callback_query_handler(self.__push, GroupFilter(group_id), PrefixCheckFilter("qpush"))
@@ -420,6 +421,9 @@ class QueueBot(BaseBot):
         if message.reply_to_message is None or message.reply_to_message.from_user.id != (await self._bot.me).id:
             return await message.reply("NullPointerException")
 
+        if message.from_user.id not in self.__admins_list:
+            return await message.reply("AccessDeniedException")
+
         try:
             queue = self.__synchroonizer(message.reply_to_message)
         except QueueMessage.ParseError:
@@ -435,6 +439,9 @@ class QueueBot(BaseBot):
     async def __open_cmd(self, message: Message):
         if message.reply_to_message is None or message.reply_to_message.from_user.id != (await self._bot.me).id:
             return await message.reply("NullPointerException")
+
+        if message.from_user.id not in self.__admins_list:
+            return await message.reply("AccessDeniedException")
 
         try:
             queue = self.__synchroonizer(message.reply_to_message)
