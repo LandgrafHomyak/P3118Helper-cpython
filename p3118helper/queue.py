@@ -191,8 +191,9 @@ class QueueBot(BaseBot):
         self._dp.register_callback_query_handler(self.__prev, GroupFilter(group_id), PrefixCheckFilter("qprev"))
         self._dp.register_callback_query_handler(self.__next, GroupFilter(group_id), PrefixCheckFilter("qnext"))
         # self._dp.register_callback_query_handler(self.__finalize_cbq, GroupFilter(group_id), PrefixCheckFilter("qfinalize"))
-        self._dp.register_callback_query_handler(self.__pass, GroupFilter(group_id), PrefixCheckFilter("qpass"))
+        # self._dp.register_callback_query_handler(self.__pass, GroupFilter(group_id), PrefixCheckFilter("qpass"))
         self._dp.register_message_handler(self.__finalize_cmd, GroupFilter(group_id), commands=["qfinalize"])
+        self._dp.register_message_handler(self.__open_cmd, GroupFilter(group_id), commands=["qopen"])
 
     async def __create_queue(self, message: Message):
         qnames = message.get_args().split()
@@ -210,22 +211,22 @@ class QueueBot(BaseBot):
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(text="push", callback_data=f"qpush"),
-                        InlineKeyboardButton(text="up", callback_data=f"qup")
+                        InlineKeyboardButton(text="pop", callback_data=f"qpop"),
                     ],
                     [
-                        InlineKeyboardButton(text="pop", callback_data=f"qpop"),
+                        InlineKeyboardButton(text="up", callback_data=f"qup"),
                         InlineKeyboardButton(text="down", callback_data=f"qdown")
                     ],
                     [
                         InlineKeyboardButton(text="prev", callback_data=f"qprev"),
                         InlineKeyboardButton(text="next", callback_data=f"qnext")
                     ],
-                    [
-                        InlineKeyboardButton(text=choice(("\U0001f31d", "\U0001f31a")), callback_data=" ")
-                    ],
-                    [
-                        InlineKeyboardButton(text="нажать после сдачи", callback_data=f"qpass")
-                    ],
+                    # [
+                    #     InlineKeyboardButton(text=choice(("\U0001f31d", "\U0001f31a")), callback_data=" ")
+                    # ],
+                    # [
+                    #     InlineKeyboardButton(text="нажать после сдачи", callback_data=f"qpass")
+                    # ],
                 ]
             )
         )
@@ -380,40 +381,40 @@ class QueueBot(BaseBot):
             await query.answer("Time goes slower...")
             await queue.update()
 
-    async def __pass(self, query: CallbackQuery):
-        try:
-            queue = self.__synchroonizer(query.message)
-        except QueueMessage.ParseError:
-            return await self.__answer_noqueue(query)
+    # async def __pass(self, query: CallbackQuery):
+    #     try:
+    #         queue = self.__synchroonizer(query.message)
+    #     except QueueMessage.ParseError:
+    #         return await self.__answer_noqueue(query)
+    #
+    #     slot = queue.find_user(query.from_user.id)
+    #     if slot is None:
+    #         return await self.__answer_nouser(query)
+    #     else:
+    #         if queue.final:
+    #             return await self.__answer_final(query)
+    #
+    #         if queue.user_synced(query.from_user.id):
+    #             return await query.answer("")
+    #
+    #         slot.pop()
+    #
+    #         await query.answer("Поздравляем с успешным отсислением из очереди")
+    #         await queue.update()
 
-        slot = queue.find_user(query.from_user.id)
-        if slot is None:
-            return await self.__answer_nouser(query)
-        else:
-            if queue.final:
-                return await self.__answer_final(query)
-
-            if queue.user_synced(query.from_user.id):
-                return await query.answer("")
-
-            slot.pop()
-
-            await query.answer("Поздравляем с успешным отсислением из очереди")
-            await queue.update()
-
-    async def __finalize_cbq(self, query: CallbackQuery):
-        try:
-            queue = self.__synchroonizer(query.message)
-        except QueueMessage.ParseError:
-            return await self.__answer_noqueue(query)
-
-        if queue.final:
-            return await query.answer("You are too late, it's already final")
-
-        queue.finalize()
-        await query.answer("Queue finalized")
-        await queue.update()
-        await query.message.answer("Queue finalized")
+    # async def __finalize_cbq(self, query: CallbackQuery):
+    #     try:
+    #         queue = self.__synchroonizer(query.message)
+    #     except QueueMessage.ParseError:
+    #         return await self.__answer_noqueue(query)
+    #
+    #     if queue.final:
+    #         return await query.answer("You are too late, it's already final")
+    #
+    #     queue.finalize()
+    #     await query.answer("Queue finalized")
+    #     await queue.update()
+    #     await query.message.answer("Queue finalized")
 
     async def __finalize_cmd(self, message: Message):
         if message.reply_to_message is None or message.reply_to_message.from_user.id != (await self._bot.me).id:
@@ -429,4 +430,20 @@ class QueueBot(BaseBot):
 
         queue.finalize()
         await message.reply("Queue finalized")
+        await queue.update()
+
+    async def __open_cmd(self, message: Message):
+        if message.reply_to_message is None or message.reply_to_message.from_user.id != (await self._bot.me).id:
+            return await message.reply("NullPointerException")
+
+        try:
+            queue = self.__synchroonizer(message.reply_to_message)
+        except QueueMessage.ParseError:
+            return await message.reply("NullPointerException")
+
+        if queue.final:
+            return await message.reply("You are too late, it's already final")
+
+        queue.open()
+        await message.reply("Queue opened again")
         await queue.update()

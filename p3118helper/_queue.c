@@ -147,6 +147,8 @@ static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueStruct_Push(P311
 
 static PyObject *P3118HelperQueue_QueueStruct_Finalize(P3118HelperQueue_QueueStruct_Object *self);
 
+static PyObject *P3118HelperQueue_QueueStruct_Open(P3118HelperQueue_QueueStruct_Object *self);
+
 static PySequenceMethods P3118HelperQueue_QueueStruct_Sequence = {
     .sq_length =(lenfunc) P3118HelperQueue_QueueStruct_Len,
     .sq_item = (ssizeargfunc) P3118HelperQueue_QueueStruct_GetItem
@@ -157,12 +159,13 @@ static PyMethodDef P3118HelperQueue_QueueStruct_Methods[] = {
     {"find_user",  (PyCFunction) P3118HelperQueue_QueueStruct_FindUser,  METH_O},
     {"push",       (PyCFunction) P3118HelperQueue_QueueStruct_Push,      METH_VARARGS},
     {"finalize",   (PyCFunction) P3118HelperQueue_QueueStruct_Finalize,  METH_NOARGS},
+    {"open",       (PyCFunction) P3118HelperQueue_QueueStruct_Open,      METH_NOARGS},
     {NULL}
 };
 
 static PyMemberDef P3118HelperQueue_QueueStruct_Members[] = {
     {"name",  T_OBJECT_EX, offsetof(P3118HelperQueue_QueueStruct_Object, name),  READONLY},
-    {"final", T_BOOL,      offsetof(P3118HelperQueue_QueueStruct_Object, final), READONLY},
+    {"final", T_BOOL,      offsetof(P3118HelperQueue_QueueStruct_Object, final), 0},
     {NULL}
 };
 
@@ -1049,6 +1052,12 @@ static P3118HelperQueue_QueueSlot_Object *P3118HelperQueue_QueueStruct_Push(P311
 static PyObject *P3118HelperQueue_QueueStruct_Finalize(P3118HelperQueue_QueueStruct_Object *self)
 {
     self->final = 1;
+    Py_RETURN_NONE;
+}
+
+static PyObject *P3118HelperQueue_QueueStruct_Open(P3118HelperQueue_QueueStruct_Object *self)
+{
+    self->final = 0;
     Py_RETURN_NONE;
 }
 
