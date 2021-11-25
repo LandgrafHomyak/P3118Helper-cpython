@@ -41,6 +41,30 @@ class QueueMessage(QueueStruct):
     # __slots__ = "__tg_message", "__mutex", "__key", "__processed_users"
     # todo i want to use slots !!1!
 
+    KEYBOARD = InlineKeyboardMarkup(
+        row_width=2,
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="push", callback_data=f"qpush"),
+                InlineKeyboardButton(text="pop", callback_data=f"qpop"),
+            ],
+            [
+                InlineKeyboardButton(text="up", callback_data=f"qup"),
+                InlineKeyboardButton(text="down", callback_data=f"qdown")
+            ],
+            [
+                InlineKeyboardButton(text="prev", callback_data=f"qprev"),
+                InlineKeyboardButton(text="next", callback_data=f"qnext")
+            ],
+            # [
+            #     InlineKeyboardButton(text=choice(("\U0001f31d", "\U0001f31a")), callback_data=" ")
+            # ],
+            # [
+            #     InlineKeyboardButton(text="нажать после сдачи", callback_data=f"qpass")
+            # ],
+        ]
+    )
+
     __global_pattern = re.compile(r"^<\s*b\s*>(final|open)</\s*b\s*> куеуе <\s*b\s*><\s*i\s*><\s*u\s*>(\w+)</\s*u\s*></\s*i\s*></\s*b\s*> {([\s\S]+)}$")
     __header_pattern = re.compile(r"^<\s*u\s*>(\w+)</\s*u\s*>:$")
     __row_pattern = re.compile(r"^<\s*code\s*> {2}(\d+) ?</\s*code\s*>(?:<\s*a\s+href=['\"]?tg://user\?id=(\d+)['\"]?\s*>(.+)</\s*a\s*>|)$")
@@ -112,7 +136,7 @@ class QueueMessage(QueueStruct):
     async def __update(self):
         self.__processed_users.clear()
         try:
-            new_message = await self.__tg_message.edit_text(self.dump(), parse_mode="html", reply_markup=self.__tg_message.reply_markup)
+            new_message = await self.__tg_message.edit_text(self.dump(), parse_mode="html", reply_markup=(None if self.final else self.KEYBOARD))
             if isinstance(new_message, Message):
                 self.__tg_message = new_message
         except MessageNotModified:
@@ -207,29 +231,7 @@ class QueueBot(BaseBot):
         await message.reply(
             QueueMessage.dump(QueueStruct(qnames[0], False, [] if len(qnames) == 1 else {name: [] for name in qnames[1:]})),
             parse_mode="html",
-            reply_markup=InlineKeyboardMarkup(
-                row_width=2,
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="push", callback_data=f"qpush"),
-                        InlineKeyboardButton(text="pop", callback_data=f"qpop"),
-                    ],
-                    [
-                        InlineKeyboardButton(text="up", callback_data=f"qup"),
-                        InlineKeyboardButton(text="down", callback_data=f"qdown")
-                    ],
-                    [
-                        InlineKeyboardButton(text="prev", callback_data=f"qprev"),
-                        InlineKeyboardButton(text="next", callback_data=f"qnext")
-                    ],
-                    # [
-                    #     InlineKeyboardButton(text=choice(("\U0001f31d", "\U0001f31a")), callback_data=" ")
-                    # ],
-                    # [
-                    #     InlineKeyboardButton(text="нажать после сдачи", callback_data=f"qpass")
-                    # ],
-                ]
-            )
+            reply_markup=QueueMessage.KEYBOARD
         )
 
     async def __answer_final(self, cbq):
