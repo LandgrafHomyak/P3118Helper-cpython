@@ -112,7 +112,7 @@ class QueueMessage(QueueStruct):
     async def __update(self):
         self.__processed_users.clear()
         try:
-            new_message = await self.__tg_message.edit_text(self.dump(), parse_mode="html", reply_markup=None if self.final else self.__tg_message.reply_markup)
+            new_message = await self.__tg_message.edit_text(self.dump(), parse_mode="html", reply_markup=self.__tg_message.reply_markup)
             if isinstance(new_message, Message):
                 self.__tg_message = new_message
         except MessageNotModified:
@@ -448,8 +448,8 @@ class QueueBot(BaseBot):
         except QueueMessage.ParseError:
             return await message.reply("NullPointerException")
 
-        if queue.final:
-            return await message.reply("You are too late, it's already final")
+        if not queue.final:
+            return await message.reply("You are so early, it's mutable yet")
 
         queue.open()
         await message.reply("Queue opened again")
