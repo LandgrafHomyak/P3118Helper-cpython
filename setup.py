@@ -7,16 +7,21 @@ ext_queue = Extension(
 
 setup(
     name="P3118Helper",
-    version="0.3.0rc0",
-    install_requires=["aiogram>=2,<3"],
+    version="0.3.0rc0+editor.0",
+    install_requires=[
+        "aiogram>=2,<3",
+        # "PySide2",
+        "colorama",
+        "setuptools"
+    ],
     packages=["p3118helper"],
     description="Telegram bot on aiogram for group P3118 in ITMO",
     package_data={"p3118helper": ["py.typed", "*.pyi"]},
     url="https://github.com/LandgrafHomyak/P3118Helper-cpython",
     author="Andrew Golovashevich",
-    download_url="https://github.com/LandgrafHomyak/P3118Helper-cpython/releases/tag/v0.3.0rc0",
+    download_url="https://github.com/LandgrafHomyak/P3118Helper-cpython/releases/tag/v0.3.0rc0+editor.0",
     python_requires=">=3.8, <3.10",
-    classifiers = [
+    classifiers=[
         "Development Status :: 4 - Beta",
         "Framework :: AsyncIO",
         "License :: OSI Approved :: MIT License",
@@ -34,4 +39,10 @@ setup(
     ],
     license="MIT",
     license_files=["LICENSE"],
+    entry_points={
+        "console_scripts": [
+            "p3118helper-editor=p3118helper.editor:main",
+            # "p3118helper-editor-gui=p3118helper.editor:maingui"
+        ]
+    },
 )
