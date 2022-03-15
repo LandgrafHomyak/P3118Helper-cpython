@@ -4,7 +4,7 @@ Telegram bot on `aiogram` for group P3118 in [ITMO](https://itmo.ru/)
 
 ## **Installing**
 
-`pip install https://github.com/LandgrafHomyak/P3118Helper-cpython/archive/refs/tags/v0.2.0rc0.tar.gz`
+`pip install https://github.com/LandgrafHomyak/P3118Helper-cpython/archive/refs/tags/v0.3.0rc0.tar.gz`
 
 ## **Using**
 
