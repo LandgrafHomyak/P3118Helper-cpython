@@ -7,7 +7,7 @@ ext_queue = Extension(
 
 setup(
     name="P3118Helper",
-    version="0.3.0rc0",
+    version="0.3.1rc0",
     install_requires=["aiogram>=2,<3"],
     packages=["p3118helper"],
     description="Telegram bot on aiogram for group P3118 in ITMO",

@@ -1,3 +1,5 @@
+![Python wheels](https://github.com/landgrafhomyak/P3118Helper-cpython/actions/workflows/python-wheels.yml/badge.svg)
+
 ## **About**
 
 Telegram bot on `aiogram` for group P3118 in [ITMO](https://itmo.ru/)
